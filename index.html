@@ -24,12 +24,11 @@
             align-items: center;
             flex-grow: 1; 
             width: 100%;
-            /* Minimalist styling: white background, thin black border removed */
             background: white; 
-            /* border: 1px solid black; <-- REMOVED BORDER */
             border-radius: 0.5rem;
             margin-top: 1rem;
             padding: 0.5rem; 
+            overflow: hidden; /* Contain canvas */
         }
         #mainCanvas:active {
             cursor: grabbing;
@@ -48,33 +47,115 @@
         .minimal-button:active {
             transform: scale(0.98);
         }
+        /* Tailwind custom classes for the toggle switch */
+        .toggle-switch-input:checked + .toggle-switch-slider {
+            background-color: black;
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        /* Custom range slider styling to make ghosts overlap cleanly */
+        input[type=range] {
+            -webkit-appearance: none; /* Hides the slider so that custom slider can be made */
+            background: transparent; /* Otherwise white in Chrome */
+        }
+        
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+            margin-top: -4px; /* You need to specify a margin in Chrome, but in Firefox and IE it is automatic */
+        }
+        
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #e5e7eb; /* gray-200 */
+            border-radius: 2px;
+        }
+        
+        /* Ghost specific thumb styles */
+        .ghost-range::-webkit-slider-thumb {
+            background: #666; /* Lighter for ghosts */
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-start p-4 text-black">
 
-    <!-- Header content - Renamed title -->
+    <!-- Header content -->
     <div id="header-content" class="flex flex-col items-center">
         <h1 class="text-3xl font-bold text-black mt-8 mb-2">random pixel grid deep zoom</h1>
-        <p class="text-gray-700 max-w-xl text-center text-sm mb-4">
+        <p id="instruction-text" class="text-gray-700 max-w-xl text-center text-sm mb-4">
             try zooming into the white pixels
         </p>
     </div>
 
     <!-- Controls simplified -->
-    <div id="controls" class="p-3 border border-black rounded-lg flex gap-4 items-center">
+    <div id="controls" class="p-3 border border-black rounded-lg flex flex-wrap justify-center gap-4 items-center">
         
-        <!-- Zoom Depth Display (lowercase) -->
+        <!-- Zoom Depth Display -->
         <div class="flex items-center space-x-2 text-lg font-mono p-1 px-3 border border-black rounded-md">
             <span>zoom depth:</span>
             <span id="zoom-depth-display" class="font-bold text-black">1</span>
         </div>
 
-        <!-- NEW: Full Grid Size Display -->
+        <!-- Full Grid Size Display -->
         <div class="flex items-center space-x-2 text-lg font-mono p-1 px-3 border border-black rounded-md">
             <span>grid size:</span>
             <span id="grid-size-display" class="font-bold text-black">16x16</span>
         </div>
 
+        <!-- Seed Input -->
+        <div class="flex items-center space-x-2 text-lg font-mono p-1 px-3 border border-black rounded-md">
+            <span>seed:</span>
+            <input type="text" id="seed-input" value="12345" class="w-24 font-bold text-black outline-none bg-transparent text-right border-b border-gray-300 focus:border-black transition-colors" onchange="updateSeed()">
+            <!-- Randomize Button -->
+            <button onclick="randomizeSeed()" class="ml-2 p-1 hover:bg-gray-200 rounded-full transition-colors" title="Randomize Seed">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+        </div>
+        
+        <!-- White Chance Control -->
+        <div class="flex items-center space-x-2 text-lg font-mono p-1 px-3 border border-black rounded-md">
+            <span>white %:</span>
+            
+            <!-- Slider Container for Ghosts -->
+            <div class="relative w-24 h-6 flex items-center">
+                <!-- Ghost Ghost (Quarter Value, 25% Opacity) - Bottom Layer -->
+                <input type="range" id="ghost-slider-2" min="0" max="100" value="12" disabled 
+                       class="ghost-range absolute w-full h-full z-0 opacity-25 pointer-events-none">
+                
+                <!-- Ghost (Half Value, 50% Opacity) - Middle Layer -->
+                <input type="range" id="ghost-slider-1" min="0" max="100" value="25" disabled 
+                       class="ghost-range absolute w-full h-full z-10 opacity-50 pointer-events-none">
+                
+                <!-- Main Slider - Top Layer -->
+                <input type="range" id="chance-slider" min="0" max="100" value="50" 
+                       class="absolute w-full h-full z-20 cursor-pointer accent-black" 
+                       oninput="updateChanceFromSlider()">
+            </div>
+
+            <input type="number" id="chance-input" value="50" min="0" max="100" class="w-12 font-bold text-black outline-none bg-transparent text-right border-b border-gray-300 focus:border-black transition-colors" onchange="updateChanceFromInput()">
+        </div>
+
+        <!-- Experimental Zoom Toggle Switch -->
+        <div class="flex items-center space-x-3 text-sm">
+            <label for="experimental-zoom-toggle" class="font-semibold text-gray-700 select-none">Experimental Zoom</label>
+            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                <input type="checkbox" name="experimental-zoom-toggle" id="experimental-zoom-toggle" class="toggle-switch-input absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" onchange="toggleExperimentalMode()">
+                <label for="experimental-zoom-toggle" class="toggle-switch-slider block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+            </div>
+        </div>
+        
         <button onclick="resetView()" 
                 class="minimal-button px-4 py-1.5 font-semibold rounded-md text-base">
             reset view
@@ -87,23 +168,41 @@
     </div>
 
     <script>
-        // --- Setup ---
+        // --- Setup & Constants ---
         const canvas = document.getElementById('mainCanvas');
         const ctx = canvas.getContext('2d');
         const zoomDepthDisplay = document.getElementById('zoom-depth-display');
         const gridSizeDisplay = document.getElementById('grid-size-display'); 
-        
-        let DISPLAY_SIZE; // Set dynamically based on screen size
-        const INITIAL_GRID_N = 16;
-        const DETAIL_THRESHOLD = 16; // Minimum screen size (in pixels) for a cell to subdivide
+        const instructionText = document.getElementById('instruction-text');
+        const seedInput = document.getElementById('seed-input');
+        const chanceSlider = document.getElementById('chance-slider');
+        const chanceInput = document.getElementById('chance-input');
+        const ghostSlider1 = document.getElementById('ghost-slider-1');
+        const ghostSlider2 = document.getElementById('ghost-slider-2');
 
-        // New constant: Hard cap for zoom level
-        const MAX_ZOOM = 65175153264870.055; 
+        let DISPLAY_SIZE; 
+        const INITIAL_GRID_N = 16;
+        const INITIAL_GRID_SIZE = INITIAL_GRID_N * INITIAL_GRID_N; // 256 cells
+        
+        // Optimization:
+        // DETAIL_THRESHOLD controls when we subdivide. 
+        // 8px ensures we don't waste cycles on sub-pixels, but keeps it sharp.
+        const DETAIL_THRESHOLD = 8; 
+
+        // Swapping Threshold:
+        // Increased to 256x. This means we zoom in until 1 cell takes up 16x the screen width.
+        // This keeps the current context active longer.
+        const SWAP_THRESHOLD = 256; 
+
+        // Standard Zoom Cap (Float precision limit)
+        const MAX_FLOAT_ZOOM = 10000000000000; 
 
         // --- State Variables ---
-        let mapData = []; // Root 16x16 grid (256 cells)
+        let mapData = []; // Root 16x16 grid
+        let currentSeed = 12345;
+        let whiteChance = 0.5; // 0.0 to 1.0
         
-        // Pan/Zoom state 
+        // Shared View State
         let zoomLevel = 1; 
         let offsetX = 0;
         let offsetY = 0;
@@ -112,198 +211,356 @@
         let lastX = 0;
         let lastY = 0;
 
-        // NEW: Tracks the maximum recursion depth actually rendered in the current frame
+        // Experimental Mode State
+        let useExperimentalZoom = false; 
+        let pathStack = []; 
+        
+        // Tracks max depth rendered for display
         let maxVisibleDepth = 1; 
 
-        /**
-         * Creates a single cell object with a random B/W color and no subgrid yet.
-         * @returns {object} The new cell object.
-         */
-        function createCell() {
-            // Strictly 0 (black) or 255 (white)
-            const color = Math.random() < 0.5 ? 0 : 255;
+        // --- Deterministic Randomness ---
+
+        function generateChildSeed(parentSeed, index) {
+            var t = parentSeed ^ (index + 0x9E3779B9);
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t = Math.imul(t ^ (t >>> 7), t | 61);
+            return (t >>> 0);
+        }
+
+        function mulberry32(a) {
+            return function() {
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ (t >>> 15), t | 1);
+                t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            }
+        }
+
+        function createCell(seed) {
+            const rng = mulberry32(seed);
+            const color = rng() < whiteChance ? 255 : 0;
             return {
                 color: color,
-                subgrid: null, // Holds the 16x16 array of sub-cells if generated
+                subgrid: null,
+                seed: seed
             };
         }
 
-        /**
-         * Initializes or re-initializes the entire recursive map structure.
-         */
         function initializeMap() {
             mapData = [];
-            for (let i = 0; i < INITIAL_GRID_N * INITIAL_GRID_N; i++) {
-                mapData.push(createCell()); 
+            for (let i = 0; i < INITIAL_GRID_SIZE; i++) {
+                const cellSeed = generateChildSeed(currentSeed, i);
+                mapData.push(createCell(cellSeed)); 
             }
         }
         
-        /**
-         * Dynamically sets the canvas width and height to fit the screen.
-         */
-        function handleResize() {
-            const headerHeight = document.getElementById('header-content').offsetHeight;
-            const controlsHeight = document.getElementById('controls').offsetHeight;
-            const bodyPadding = 32; // 2 * 1rem body padding (approx)
-            const marginBuffer = 30; // Margin below controls and container padding
-
-            // Calculate the maximum space available below the controls
-            const availableHeight = window.innerHeight - headerHeight - controlsHeight - bodyPadding - marginBuffer; 
-            const availableWidth = window.innerWidth - bodyPadding - marginBuffer; 
-
-            // Use the smaller dimension to keep the canvas square
-            const newSize = Math.floor(Math.min(availableWidth, availableHeight));
-
-            // Update canvas element size (drawing buffer)
-            canvas.width = newSize;
-            canvas.height = newSize;
-
-            // Update global reference size
-            DISPLAY_SIZE = newSize;
-
-            // Redraw the canvas content to fit the new size
-            drawCanvas();
+        function populateSubgrid(cell) {
+            cell.subgrid = [];
+            for (let j = 0; j < INITIAL_GRID_SIZE; j++) {
+                const childSeed = generateChildSeed(cell.seed, j);
+                cell.subgrid.push(createCell(childSeed));
+            }
         }
 
+        function getGridFromPath(path) {
+            let currentGrid = mapData;
+            for (let i = 0; i < path.length; i++) {
+                const index = path[i];
+                let cell = currentGrid[index];
+                if (cell.subgrid === null) {
+                    populateSubgrid(cell);
+                }
+                currentGrid = cell.subgrid;
+            }
+            return currentGrid;
+        }
+
+        // --- Rendering Logic ---
+
         /**
-         * Recursively draws the grid structure. This is the heart of the infinite zoom.
-         * @param {Array<object>} grid The 16x16 array of cells to draw.
-         * @param {number} drawX The starting X coordinate for this grid chunk on the canvas.
-         * @param {number} drawY The starting Y coordinate for this grid chunk on the canvas.
-         * @param {number} currentSize The total screen size (width/height) this grid chunk occupies.
-         * @param {number} currentDepth The current recursion level (1=root, 2=subgrid 1, etc.)
+         * Recursive grid drawer.
+         * Added skipIndex to prevent drawing the cell that we are about to draw in higher detail on top.
          */
-        function drawGrid(grid, drawX, drawY, currentSize, currentDepth) {
-            if (DISPLAY_SIZE === undefined) return; // Guard against drawing before resize runs
-
-            // Update the maximum depth we have reached in this frame
-            maxVisibleDepth = Math.max(maxVisibleDepth, currentDepth);
+        function drawRecursiveGrid(grid, drawX, drawY, currentSize, currentDepth, skipIndex = -1) {
+            if (drawX + currentSize < 0 || drawY + currentSize < 0 || 
+                drawX > DISPLAY_SIZE || drawY > DISPLAY_SIZE) {
+                return;
+            }
             
-            const cellSize = currentSize / INITIAL_GRID_N; // Size of one block in the current grid
-            const gridLength = grid.length; // Max index + 1 for the current grid
+            if (currentSize < 0.5) return;
 
-            // Check if we are at the minimum zoom level (1) and should not subdivide, 
-            // regardless of the cell size on screen. Using 1.001 for float safety.
-            const isBaseGridAndAtMinZoom = (currentDepth === 1 && zoomLevel <= 1.001);
+            maxVisibleDepth = Math.max(maxVisibleDepth, currentDepth);
+
+            const cellSize = currentSize / INITIAL_GRID_N;
+            const gridLength = grid.length;
+            
+            const isBaseGridAndAtMinZoom = (!useExperimentalZoom && currentDepth === 1 && zoomLevel <= 1.001);
 
             for (let y = 0; y < INITIAL_GRID_N; y++) {
                 for (let x = 0; x < INITIAL_GRID_N; x++) {
                     const index = y * INITIAL_GRID_N + x;
-
-                    // Check if the index is valid for the current grid array
-                    if (index >= gridLength) {
-                        continue; 
-                    }
                     
-                    const cell = grid[index];
+                    // SKIP the cell that represents the next layer down
+                    // (Because we will draw that layer on top with higher precision)
+                    if (index === skipIndex) continue;
 
-                    // Calculate the absolute position for this cell on the canvas
+                    if (index >= gridLength) continue;
+
+                    const cell = grid[index];
                     const cellDrawX = drawX + x * cellSize;
                     const cellDrawY = drawY + y * cellSize;
-                    
-                    // Optimization: Check if cell is outside the viewport
+
                     if (cellDrawX + cellSize < 0 || cellDrawY + cellSize < 0 ||
                         cellDrawX > DISPLAY_SIZE || cellDrawY > DISPLAY_SIZE) {
-                        continue; // Skip drawing this cell
+                        continue;
                     }
 
-                    // --- Recursive Generation & Drawing Logic ---
-                    
-                    // The cell must be white, must not be at the base zoom level (Depth 1, zoom 1),
-                    // AND must be larger than the detail threshold to subdivide.
                     if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= DETAIL_THRESHOLD) {
-                        
-                        // 1. Generate subgrid if it doesn't exist (detail-on-demand)
                         if (cell.subgrid === null) {
-                            cell.subgrid = [];
-                            for (let i = 0; i < INITIAL_GRID_N * INITIAL_GRID_N; i++) {
-                                cell.subgrid.push(createCell());
-                            }
+                            populateSubgrid(cell);
                         }
-
-                        // 2. Recurse into the subgrid, incrementing depth
-                        drawGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
-                        
+                        drawRecursiveGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
                     } else {
-                        // Base case: Draw the solid block (too small, black, or forced to stop at Depth 1)
-                        
-                        // Set B/W color
                         const colorVal = cell.color;
                         ctx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
-                        
-                        // Draw the scaled block
-                        ctx.fillRect(cellDrawX, cellDrawY, cellSize + 0.5, cellSize + 0.5); // +0.5 to prevent gaps
+                        ctx.fillRect(
+                            Math.floor(cellDrawX), 
+                            Math.floor(cellDrawY), 
+                            Math.ceil(cellSize + 0.5), 
+                            Math.ceil(cellSize + 0.5)
+                        );
                     }
                 }
             }
         }
-        
-        /**
-         * The main drawing loop, preparing the canvas transformation.
-         */
+
         function drawCanvas() {
             if (DISPLAY_SIZE === undefined) return;
-            ctx.clearRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE);
-            
-            // Set canvas background to WHITE to match the request for white void
-            ctx.fillStyle = 'white'; 
-            ctx.fillRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE);
-            
-            // Reset maxVisibleDepth to 1 (the base grid level) before drawing
-            maxVisibleDepth = 1; 
-            
-            // The initial call starts the recursion at the root level (mapData)
-            // with the size scaled by the zoom level, starting at depth 1.
-            drawGrid(mapData, offsetX, offsetY, DISPLAY_SIZE * zoomLevel, 1);
 
-            updateZoomDisplay(); // Update display after rendering is complete
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE);
+
+            if (useExperimentalZoom) {
+                // EXPERIMENTAL MODE: Ancestor Rendering
+                
+                let renderQueue = [];
+                
+                // 1. Start with Tip (Current View)
+                let currentGrid = getGridFromPath(pathStack);
+                let currentSize = DISPLAY_SIZE * zoomLevel;
+                let currentX = offsetX;
+                let currentY = offsetY;
+                let currentDepth = pathStack.length + 1;
+                
+                // Push Tip to queue (this draws last, on top)
+                renderQueue.push({ 
+                    grid: currentGrid, 
+                    x: currentX, 
+                    y: currentY, 
+                    size: currentSize, 
+                    depth: currentDepth,
+                    skipIndex: -1 
+                });
+
+                // 2. Walk up the stack to find ancestors
+                let tempSize = currentSize;
+                let tempX = currentX;
+                let tempY = currentY;
+
+                // Iterate backwards from parent of tip
+                for (let i = pathStack.length - 1; i >= 0; i--) {
+                    let childIndex = pathStack[i]; // The index of the child within this parent
+                    let cx = childIndex % 16;
+                    let cy = Math.floor(childIndex / 16);
+                    
+                    // Calculate Parent's dimensions based on Child's
+                    tempSize *= 16; 
+                    tempX = tempX - cx * (tempSize / 16);
+                    tempY = tempY - cy * (tempSize / 16);
+                    
+                    // Get Parent Grid
+                    let parentGrid = getGridFromPath(pathStack.slice(0, i));
+                    
+                    // Add to front of queue (draw earlier, underneath)
+                    renderQueue.unshift({ 
+                        grid: parentGrid, 
+                        x: tempX, 
+                        y: tempY, 
+                        size: tempSize,
+                        depth: i + 1,
+                        skipIndex: childIndex // Tell parent NOT to draw the child block
+                    });
+                    
+                    if (tempSize > 1e10) break; 
+                }
+                
+                // 3. Render All Layers
+                // IMPORTANT: Reset maxVisibleDepth based on the logical stack depth base,
+                // then let drawing update it to the actual pixel detail depth.
+                maxVisibleDepth = pathStack.length + 1; 
+                
+                renderQueue.forEach(item => {
+                    drawRecursiveGrid(item.grid, item.x, item.y, item.size, item.depth, item.skipIndex);
+                });
+
+            } else {
+                // Standard Mode
+                maxVisibleDepth = 1;
+                drawRecursiveGrid(mapData, offsetX, offsetY, DISPLAY_SIZE * zoomLevel, 1);
+            }
+
+            updateZoomDisplay();
         }
 
-        /**
-         * Updates the zoom depth display and calculates the full grid size.
-         */
+        // --- Smart Swapping Engine (Experimental Mode) ---
+
+        function enforceStackConstraints() {
+            if (!useExperimentalZoom) return;
+
+            // 1. Zoom In Threshold
+            while (zoomLevel >= SWAP_THRESHOLD) {
+                const centerX = DISPLAY_SIZE / 2;
+                const centerY = DISPLAY_SIZE / 2;
+
+                const gridX = (centerX - offsetX) / (DISPLAY_SIZE * zoomLevel) * 16;
+                const gridY = (centerY - offsetY) / (DISPLAY_SIZE * zoomLevel) * 16;
+
+                const cx = Math.floor(gridX);
+                const cy = Math.floor(gridY);
+
+                if (cx >= 0 && cx < 16 && cy >= 0 && cy < 16) {
+                    const index = cy * 16 + cx;
+
+                    // Check if target is white to prevent zooming into darkness
+                    const currentGrid = getGridFromPath(pathStack);
+                    const targetCell = currentGrid[index];
+
+                    if (targetCell.color !== 255) {
+                         break;
+                    }
+
+                    pathStack.push(index);
+                    zoomLevel /= 16;
+
+                    offsetX = offsetX + (cx * DISPLAY_SIZE * zoomLevel);
+                    offsetY = offsetY + (cy * DISPLAY_SIZE * zoomLevel);
+
+                } else {
+                    break; 
+                }
+            }
+
+            // 2. Zoom Out Threshold
+            while (zoomLevel < 1 && pathStack.length > 0) {
+                const childIndex = pathStack.pop();
+                const cx = childIndex % 16;
+                const cy = Math.floor(childIndex / 16);
+
+                const oldZoom = zoomLevel; 
+                zoomLevel *= 16;
+
+                offsetX = offsetX - (cx * DISPLAY_SIZE * oldZoom);
+                offsetY = offsetY - (cy * DISPLAY_SIZE * oldZoom);
+            }
+        }
+
+        // --- Interaction Handlers ---
+
+        function randomizeSeed() {
+            const newSeed = Math.floor(Math.random() * 1000000);
+            seedInput.value = newSeed;
+            updateSeed();
+        }
+
+        function updateSeed() {
+            const val = seedInput.value;
+            let seedNum = parseInt(val);
+            if (isNaN(seedNum)) {
+                seedNum = 0;
+                for (let i = 0; i < val.length; i++) {
+                    seedNum = ((seedNum << 5) - seedNum) + val.charCodeAt(i);
+                    seedNum |= 0; 
+                }
+            }
+            currentSeed = seedNum;
+            resetView();
+        }
+
+        function updateChanceFromSlider() {
+            const val = chanceSlider.value;
+            whiteChance = val / 100;
+            chanceInput.value = val;
+            
+            ghostSlider1.value = val / 2;
+            ghostSlider2.value = val / 4;
+            
+            resetView();
+        }
+
+        function updateChanceFromInput() {
+            let val = parseInt(chanceInput.value);
+            if (val < 0) val = 0;
+            if (val > 100) val = 100;
+            chanceInput.value = val;
+            chanceSlider.value = val;
+            whiteChance = val / 100;
+            
+            ghostSlider1.value = val / 2;
+            ghostSlider2.value = val / 4;
+            
+            resetView();
+        }
+
         function updateZoomDisplay() {
-            // Display the max depth that the recursive renderer function calculated
-            const depth = maxVisibleDepth;
+            // MODIFIED: Use actual rendered depth for both modes
+            const depth = maxVisibleDepth; 
             zoomDepthDisplay.textContent = depth;
 
-            // Calculate Grid Side Length (16^depth)
-            
-            if (depth <= 5) {
-                // Calculate and format the actual number for readable depths (up to 1,048,576)
+            if (depth <= 10) { 
                 const sideLength = Math.pow(16, depth);
-                // Use Intl.NumberFormat to format the number with commas for readability
                 const formatter = new Intl.NumberFormat('en-US');
                 const formattedLength = formatter.format(sideLength);
                 gridSizeDisplay.textContent = `${formattedLength}x${formattedLength}`;
             } else {
-                 // Fall back to power notation for extreme depths (depth 6 is over 16 million)
-                 const sideLength = `16^${depth}`;
-                 gridSizeDisplay.textContent = `${sideLength}x${sideLength}`;
+                const sideLength = `16^${depth}`;
+                gridSizeDisplay.textContent = `${sideLength}x${sideLength}`;
             }
         }
 
-        /**
-         * Resets zoom, pan, and regenerates the noise data.
-         */
+        function toggleExperimentalMode() {
+            const checkbox = document.getElementById('experimental-zoom-toggle');
+            useExperimentalZoom = checkbox.checked;
+            // Keep instruction text static as requested
+            resetView();
+        }
+
         function resetView() {
             zoomLevel = 1;
             offsetX = 0;
             offsetY = 0;
-            initializeMap();
-            // Reset max visible depth
+            pathStack = [];
+            initializeMap(); 
             maxVisibleDepth = 1; 
-            updateZoomDisplay(); // Update display on reset
             drawCanvas();
-            console.log('View reset. New Zoom Level:', zoomLevel);
         }
 
+        function handleResize() {
+            const headerHeight = document.getElementById('header-content').offsetHeight;
+            const controlsHeight = document.getElementById('controls').offsetHeight;
+            const bodyPadding = 32; 
+            const marginBuffer = 30; 
+            const availableHeight = window.innerHeight - headerHeight - controlsHeight - bodyPadding - marginBuffer; 
+            const availableWidth = window.innerWidth - bodyPadding - marginBuffer; 
+            const newSize = Math.floor(Math.min(availableWidth, availableHeight));
 
-        // --- Interaction Handlers ---
+            canvas.width = newSize;
+            canvas.height = newSize;
+            DISPLAY_SIZE = newSize;
+            drawCanvas();
+        }
 
         function getMousePos(e) {
             const rect = canvas.getBoundingClientRect();
-            // Handle both mouse and touch input
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             return {
@@ -312,135 +569,103 @@
             };
         }
 
-        // Panning Logic (Mouse Down/Touch Start)
-        function startDrag(e) {
-            isDragging = true;
-            const pos = getMousePos(e);
-            lastX = pos.x;
-            lastY = pos.y;
-            canvas.style.cursor = 'grabbing';
-            if (e.touches) e.preventDefault(); // Prevent scrolling on touch
-        }
+        // --- Unified Input Logic ---
 
-        // Panning Logic (Mouse Move/Touch Move)
-        function drag(e) {
-            if (!isDragging) return;
-            const pos = getMousePos(e);
-            const dx = pos.x - lastX;
-            const dy = pos.y - lastY;
-            
-            offsetX += dx;
-            offsetY += dy;
-            
-            lastX = pos.x;
-            lastY = pos.y;
-            
-            drawCanvas(); // Redraw with new pan
-            if (e.touches) e.preventDefault();
-        }
-
-        function endDrag() {
-            isDragging = false;
-            canvas.style.cursor = 'grab';
-        }
-
-        canvas.addEventListener('mousedown', startDrag);
-        canvas.addEventListener('touchstart', startDrag);
-
-        canvas.addEventListener('mousemove', drag);
-        canvas.addEventListener('touchmove', drag);
-
-        canvas.addEventListener('mouseup', endDrag);
-        canvas.addEventListener('mouseleave', endDrag);
-        canvas.addEventListener('touchend', endDrag);
-        canvas.addEventListener('touchcancel', endDrag);
-
-        // Zooming Logic (Mouse Wheel)
         canvas.addEventListener('wheel', (e) => {
-            e.preventDefault(); 
+            e.preventDefault();
             
             const isZoomingIn = e.deltaY < 0;
-            const zoomFactor = isZoomingIn ? 1.2 : 0.8;
+            const zoomFactor = isZoomingIn ? 1.1 : 0.9; 
             const newZoomLevel = zoomLevel * zoomFactor;
             
             let finalZoomLevel = newZoomLevel;
             let finalZoomFactor = zoomFactor;
 
-            // 1. Zoom In Cap Check
-            if (isZoomingIn) {
-                if (finalZoomLevel > MAX_ZOOM) {
-                    // Snap to cap if overshoot is detected
-                    if (zoomLevel < MAX_ZOOM) {
-                         finalZoomLevel = MAX_ZOOM;
-                         finalZoomFactor = MAX_ZOOM / zoomLevel;
-                    } else {
-                        // Already at or above cap, stop zooming
-                        console.log('Zoom IN prevented: Maximum zoom level reached. Current:', zoomLevel);
-                        return;
-                    }
+            if (!useExperimentalZoom) {
+                if (isZoomingIn && finalZoomLevel > MAX_FLOAT_ZOOM) {
+                    finalZoomLevel = MAX_FLOAT_ZOOM;
+                    finalZoomFactor = MAX_FLOAT_ZOOM / zoomLevel;
+                } else if (!isZoomingIn && finalZoomLevel < 1) {
+                    finalZoomLevel = 1;
+                    finalZoomFactor = 1 / zoomLevel;
                 }
-            } else {
-                // 2. Zoom Out Min Check (Minimum zoom level is 1)
-                if (finalZoomLevel < 1) {
-                    // Snap to minimum if undershoot is detected
-                    if (zoomLevel > 1) {
-                        finalZoomLevel = 1;
-                        finalZoomFactor = 1 / zoomLevel;
-                    } else {
-                        // Already at minimum, stop zooming out
-                        console.log('Zoom OUT prevented: Minimum zoom level reached. Current:', zoomLevel);
-                        return;
-                    }
-                }
-            }
-            
-            // Log zoom out attempt details for debugging
-            if (!isZoomingIn) {
-                console.groupCollapsed('Zoom Out Attempt');
-                console.log('Current Zoom Level:', zoomLevel);
-                console.log('Zoom Factor:', zoomFactor);
-                console.log('Calculated Next Level (Pre-Clamp):', newZoomLevel);
-                console.log('Final Zoom Level (Post-Clamp):', finalZoomLevel);
-                console.log('Final Zoom Factor Applied:', finalZoomFactor);
-                console.groupEnd();
             }
 
-            // 3. Apply the zoom
             const pos = getMousePos(e);
-            const mouseX = pos.x;
-            const mouseY = pos.y;
-            
-            // Apply focal point zoom logic using the calculated or capped factor
-            offsetX = mouseX - (mouseX - offsetX) * finalZoomFactor;
-            offsetY = mouseY - (mouseY - offsetY) * finalZoomFactor;
-            
+            offsetX = pos.x - (pos.x - offsetX) * finalZoomFactor;
+            offsetY = pos.y - (pos.y - offsetY) * finalZoomFactor;
             zoomLevel = finalZoomLevel;
 
-            // 4. Reset offsets if we hit the minimum zoom level (Ensures grid centers properly)
-            if (zoomLevel === 1) {
-                offsetX = 0; 
-                offsetY = 0;
+            if (useExperimentalZoom) {
+                enforceStackConstraints();
             }
 
-            // Log final applied zoom level
-            console.log('New Zoom Level (Applied):', zoomLevel);
+            if (!useExperimentalZoom && zoomLevel === 1) { 
+                offsetX = 0; offsetY = 0; 
+            }
             
-            drawCanvas(); // Redraw which updates maxVisibleDepth and then updateZoomDisplay
+            drawCanvas();
+        }, { passive: false });
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const pos = getMousePos(e);
+            lastX = pos.x;
+            lastY = pos.y;
+            canvas.style.cursor = 'grabbing';
         });
 
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const pos = getMousePos(e);
+            offsetX += pos.x - lastX;
+            offsetY += pos.y - lastY;
+            lastX = pos.x;
+            lastY = pos.y;
+            drawCanvas();
+        });
 
-        // --- Initialization ---
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if(e.touches.length === 1) {
+                isDragging = true;
+                const pos = getMousePos(e);
+                lastX = pos.x;
+                lastY = pos.y;
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if(isDragging && e.touches.length === 1) {
+                e.preventDefault(); 
+                const pos = getMousePos(e);
+                offsetX += pos.x - lastX;
+                offsetY += pos.y - lastY;
+                lastX = pos.x;
+                lastY = pos.y;
+                drawCanvas();
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
         window.onload = function() {
-            // Initial sizing
             handleResize();
-
-            // Set up resize listener
             window.addEventListener('resize', handleResize);
-
-            // Generate the initial 16x16 noise grid
-            initializeMap();
-            
-            // Draw the canvas once all setup is complete
+            updateChanceFromSlider(); 
+            canvas.style.cursor = 'grab'; 
             drawCanvas();
         }
 
