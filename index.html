@@ -184,14 +184,14 @@
         const INITIAL_GRID_N = 16;
         const INITIAL_GRID_SIZE = INITIAL_GRID_N * INITIAL_GRID_N; // 256 cells
         
-        // Optimization:
-        // DETAIL_THRESHOLD controls when we subdivide. 
-        // 8px ensures we don't waste cycles on sub-pixels, but keeps it sharp.
-        const DETAIL_THRESHOLD = 8; 
+        // Optimization & Preload Logic:
+        // RENDER_THRESHOLD (16px): The size at which we visually split a block. 
+        // PRELOAD_THRESHOLD (8px): The size at which we generate the memory structure.
+        // This ensures data is ready before rendering, but we save draw calls by waiting longer to render.
+        const RENDER_THRESHOLD = 16; 
+        const PRELOAD_THRESHOLD = 8;
 
         // Swapping Threshold:
-        // Increased to 256x. This means we zoom in until 1 cell takes up 16x the screen width.
-        // This keeps the current context active longer.
         const SWAP_THRESHOLD = 256; 
 
         // Standard Zoom Cap (Float precision limit)
@@ -279,7 +279,6 @@
 
         /**
          * Recursive grid drawer.
-         * Added skipIndex to prevent drawing the cell that we are about to draw in higher detail on top.
          */
         function drawRecursiveGrid(grid, drawX, drawY, currentSize, currentDepth, skipIndex = -1) {
             if (drawX + currentSize < 0 || drawY + currentSize < 0 || 
@@ -300,10 +299,7 @@
                 for (let x = 0; x < INITIAL_GRID_N; x++) {
                     const index = y * INITIAL_GRID_N + x;
                     
-                    // SKIP the cell that represents the next layer down
-                    // (Because we will draw that layer on top with higher precision)
                     if (index === skipIndex) continue;
-
                     if (index >= gridLength) continue;
 
                     const cell = grid[index];
@@ -315,21 +311,31 @@
                         continue;
                     }
 
-                    if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= DETAIL_THRESHOLD) {
+                    // SPLIT LOGIC: PRELOAD vs RENDER
+                    if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= PRELOAD_THRESHOLD) {
+                        
+                        // 1. Preload Memory if needed (Ready to go)
                         if (cell.subgrid === null) {
                             populateSubgrid(cell);
                         }
-                        drawRecursiveGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
-                    } else {
-                        const colorVal = cell.color;
-                        ctx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
-                        ctx.fillRect(
-                            Math.floor(cellDrawX), 
-                            Math.floor(cellDrawY), 
-                            Math.ceil(cellSize + 0.5), 
-                            Math.ceil(cellSize + 0.5)
-                        );
+
+                        // 2. Render Children ONLY if size is large enough (Optimization)
+                        if (cellSize >= RENDER_THRESHOLD) {
+                            drawRecursiveGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
+                            continue; // Child drawn, skip drawing solid block
+                        }
                     }
+                    
+                    // Fallback: Draw solid block
+                    // (Happens if cell is Black, OR if cell is White but between 8px-16px)
+                    const colorVal = cell.color;
+                    ctx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
+                    ctx.fillRect(
+                        Math.floor(cellDrawX), 
+                        Math.floor(cellDrawY), 
+                        Math.ceil(cellSize + 0.5), 
+                        Math.ceil(cellSize + 0.5)
+                    );
                 }
             }
         }
@@ -352,7 +358,6 @@
                 let currentY = offsetY;
                 let currentDepth = pathStack.length + 1;
                 
-                // Push Tip to queue (this draws last, on top)
                 renderQueue.push({ 
                     grid: currentGrid, 
                     x: currentX, 
@@ -367,36 +372,30 @@
                 let tempX = currentX;
                 let tempY = currentY;
 
-                // Iterate backwards from parent of tip
                 for (let i = pathStack.length - 1; i >= 0; i--) {
-                    let childIndex = pathStack[i]; // The index of the child within this parent
+                    let childIndex = pathStack[i]; 
                     let cx = childIndex % 16;
                     let cy = Math.floor(childIndex / 16);
                     
-                    // Calculate Parent's dimensions based on Child's
                     tempSize *= 16; 
                     tempX = tempX - cx * (tempSize / 16);
                     tempY = tempY - cy * (tempSize / 16);
                     
-                    // Get Parent Grid
                     let parentGrid = getGridFromPath(pathStack.slice(0, i));
                     
-                    // Add to front of queue (draw earlier, underneath)
                     renderQueue.unshift({ 
                         grid: parentGrid, 
                         x: tempX, 
                         y: tempY, 
                         size: tempSize,
                         depth: i + 1,
-                        skipIndex: childIndex // Tell parent NOT to draw the child block
+                        skipIndex: childIndex 
                     });
                     
                     if (tempSize > 1e10) break; 
                 }
                 
                 // 3. Render All Layers
-                // IMPORTANT: Reset maxVisibleDepth based on the logical stack depth base,
-                // then let drawing update it to the actual pixel detail depth.
                 maxVisibleDepth = pathStack.length + 1; 
                 
                 renderQueue.forEach(item => {
