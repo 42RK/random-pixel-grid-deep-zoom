@@ -184,15 +184,14 @@
         const INITIAL_GRID_N = 16;
         const INITIAL_GRID_SIZE = INITIAL_GRID_N * INITIAL_GRID_N; // 256 cells
         
-        // Optimization & Preload Logic:
-        // RENDER_THRESHOLD (16px): The size at which we visually split a block. 
-        // PRELOAD_THRESHOLD (8px): The size at which we generate the memory structure.
-        // This ensures data is ready before rendering, but we save draw calls by waiting longer to render.
-        const RENDER_THRESHOLD = 16; 
-        const PRELOAD_THRESHOLD = 8;
+        // --- MODIFIED: Increased rendering detail threshold from 8 to 16 ---
+        // DETAIL_THRESHOLD controls when we stop subdividing recursively. 
+        const DETAIL_THRESHOLD = 16; 
 
-        // Swapping Threshold:
-        const SWAP_THRESHOLD = 256; 
+        // --- MODIFIED: Increased swapping threshold from 256 to 512 ---
+        // SWAP_THRESHOLD controls the zoom level that triggers a full context swap in experimental mode.
+        // The swap now occurs when a single cell takes up 512 / 16 = 32 times the initial screen width.
+        const SWAP_THRESHOLD = 512; 
 
         // Standard Zoom Cap (Float precision limit)
         const MAX_FLOAT_ZOOM = 10000000000000; 
@@ -279,6 +278,7 @@
 
         /**
          * Recursive grid drawer.
+         * Added skipIndex to prevent drawing the cell that we are about to draw in higher detail on top.
          */
         function drawRecursiveGrid(grid, drawX, drawY, currentSize, currentDepth, skipIndex = -1) {
             if (drawX + currentSize < 0 || drawY + currentSize < 0 || 
@@ -293,13 +293,17 @@
             const cellSize = currentSize / INITIAL_GRID_N;
             const gridLength = grid.length;
             
+            // If we are at base grid and minimum zoom in standard mode, we don't need fancy recursion.
             const isBaseGridAndAtMinZoom = (!useExperimentalZoom && currentDepth === 1 && zoomLevel <= 1.001);
 
             for (let y = 0; y < INITIAL_GRID_N; y++) {
                 for (let x = 0; x < INITIAL_GRID_N; x++) {
                     const index = y * INITIAL_GRID_N + x;
                     
+                    // SKIP the cell that represents the next layer down
+                    // (Because we will draw that layer on top with higher precision)
                     if (index === skipIndex) continue;
+
                     if (index >= gridLength) continue;
 
                     const cell = grid[index];
@@ -311,31 +315,23 @@
                         continue;
                     }
 
-                    // SPLIT LOGIC: PRELOAD vs RENDER
-                    if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= PRELOAD_THRESHOLD) {
-                        
-                        // 1. Preload Memory if needed (Ready to go)
+                    // Only subdivide if the cell is white AND the resulting pixel size is large enough
+                    // (DETAIL_THRESHOLD is now 16)
+                    if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= DETAIL_THRESHOLD) {
                         if (cell.subgrid === null) {
                             populateSubgrid(cell);
                         }
-
-                        // 2. Render Children ONLY if size is large enough (Optimization)
-                        if (cellSize >= RENDER_THRESHOLD) {
-                            drawRecursiveGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
-                            continue; // Child drawn, skip drawing solid block
-                        }
+                        drawRecursiveGrid(cell.subgrid, cellDrawX, cellDrawY, cellSize, currentDepth + 1);
+                    } else {
+                        const colorVal = cell.color;
+                        ctx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
+                        ctx.fillRect(
+                            Math.floor(cellDrawX), 
+                            Math.floor(cellDrawY), 
+                            Math.ceil(cellSize + 0.5), 
+                            Math.ceil(cellSize + 0.5)
+                        );
                     }
-                    
-                    // Fallback: Draw solid block
-                    // (Happens if cell is Black, OR if cell is White but between 8px-16px)
-                    const colorVal = cell.color;
-                    ctx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
-                    ctx.fillRect(
-                        Math.floor(cellDrawX), 
-                        Math.floor(cellDrawY), 
-                        Math.ceil(cellSize + 0.5), 
-                        Math.ceil(cellSize + 0.5)
-                    );
                 }
             }
         }
@@ -358,6 +354,7 @@
                 let currentY = offsetY;
                 let currentDepth = pathStack.length + 1;
                 
+                // Push Tip to queue (this draws last, on top)
                 renderQueue.push({ 
                     grid: currentGrid, 
                     x: currentX, 
@@ -372,30 +369,36 @@
                 let tempX = currentX;
                 let tempY = currentY;
 
+                // Iterate backwards from parent of tip
                 for (let i = pathStack.length - 1; i >= 0; i--) {
-                    let childIndex = pathStack[i]; 
+                    let childIndex = pathStack[i]; // The index of the child within this parent
                     let cx = childIndex % 16;
                     let cy = Math.floor(childIndex / 16);
                     
+                    // Calculate Parent's dimensions based on Child's
                     tempSize *= 16; 
                     tempX = tempX - cx * (tempSize / 16);
                     tempY = tempY - cy * (tempSize / 16);
                     
+                    // Get Parent Grid
                     let parentGrid = getGridFromPath(pathStack.slice(0, i));
                     
+                    // Add to front of queue (draw earlier, underneath)
                     renderQueue.unshift({ 
                         grid: parentGrid, 
                         x: tempX, 
                         y: tempY, 
                         size: tempSize,
                         depth: i + 1,
-                        skipIndex: childIndex 
+                        skipIndex: childIndex // Tell parent NOT to draw the child block
                     });
                     
                     if (tempSize > 1e10) break; 
                 }
                 
                 // 3. Render All Layers
+                // IMPORTANT: Reset maxVisibleDepth based on the logical stack depth base,
+                // then let drawing update it to the actual pixel detail depth.
                 maxVisibleDepth = pathStack.length + 1; 
                 
                 renderQueue.forEach(item => {
@@ -416,7 +419,7 @@
         function enforceStackConstraints() {
             if (!useExperimentalZoom) return;
 
-            // 1. Zoom In Threshold
+            // 1. Zoom In Threshold (SWAP_THRESHOLD is now 512)
             while (zoomLevel >= SWAP_THRESHOLD) {
                 const centerX = DISPLAY_SIZE / 2;
                 const centerY = DISPLAY_SIZE / 2;
@@ -511,7 +514,7 @@
         }
 
         function updateZoomDisplay() {
-            // MODIFIED: Use actual rendered depth for both modes
+            // Use actual rendered depth for both modes
             const depth = maxVisibleDepth; 
             zoomDepthDisplay.textContent = depth;
 
@@ -529,7 +532,6 @@
         function toggleExperimentalMode() {
             const checkbox = document.getElementById('experimental-zoom-toggle');
             useExperimentalZoom = checkbox.checked;
-            // Keep instruction text static as requested
             resetView();
         }
 
