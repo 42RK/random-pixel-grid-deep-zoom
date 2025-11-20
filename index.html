@@ -184,13 +184,10 @@
         const INITIAL_GRID_N = 16;
         const INITIAL_GRID_SIZE = INITIAL_GRID_N * INITIAL_GRID_N; // 256 cells
         
-        // --- MODIFIED: Increased rendering detail threshold from 8 to 16 ---
-        // DETAIL_THRESHOLD controls when we stop subdividing recursively. 
+        // Rendering Threshold (Minimum pixel size to attempt subdivision)
         const DETAIL_THRESHOLD = 16; 
 
-        // --- MODIFIED: Increased swapping threshold from 256 to 512 ---
-        // SWAP_THRESHOLD controls the zoom level that triggers a full context swap in experimental mode.
-        // The swap now occurs when a single cell takes up 512 / 16 = 32 times the initial screen width.
+        // Swapping Threshold (Zoom level to trigger context shift in experimental mode)
         const SWAP_THRESHOLD = 512; 
 
         // Standard Zoom Cap (Float precision limit)
@@ -207,15 +204,36 @@
         let offsetY = 0;
         
         let isDragging = false;
+        let isPinching = false; // NEW: State for multi-touch zoom
         let lastX = 0;
         let lastY = 0;
-
+        let initialPinchDistance = 0; // NEW: Stores distance between two touches
+        
         // Experimental Mode State
         let useExperimentalZoom = false; 
         let pathStack = []; 
         
         // Tracks max depth rendered for display
         let maxVisibleDepth = 1; 
+
+        // --- Utility Functions for Touch ---
+
+        // Utility function to calculate distance between two touches
+        function getDistance(touch1, touch2) {
+            return Math.sqrt(
+                Math.pow(touch2.clientX - touch1.clientX, 2) +
+                Math.pow(touch2.clientY - touch1.clientY, 2)
+            );
+        }
+
+        // Utility function to get the midpoint of two touches (for zoom center)
+        function getMidpoint(touch1, touch2, rect) {
+            return {
+                x: (touch1.clientX + touch2.clientX) / 2 - rect.left,
+                y: (touch1.clientY + touch2.clientY) / 2 - rect.top
+            };
+        }
+
 
         // --- Deterministic Randomness ---
 
@@ -278,7 +296,6 @@
 
         /**
          * Recursive grid drawer.
-         * Added skipIndex to prevent drawing the cell that we are about to draw in higher detail on top.
          */
         function drawRecursiveGrid(grid, drawX, drawY, currentSize, currentDepth, skipIndex = -1) {
             if (drawX + currentSize < 0 || drawY + currentSize < 0 || 
@@ -301,7 +318,6 @@
                     const index = y * INITIAL_GRID_N + x;
                     
                     // SKIP the cell that represents the next layer down
-                    // (Because we will draw that layer on top with higher precision)
                     if (index === skipIndex) continue;
 
                     if (index >= gridLength) continue;
@@ -316,7 +332,6 @@
                     }
 
                     // Only subdivide if the cell is white AND the resulting pixel size is large enough
-                    // (DETAIL_THRESHOLD is now 16)
                     if (cell.color === 255 && !isBaseGridAndAtMinZoom && cellSize >= DETAIL_THRESHOLD) {
                         if (cell.subgrid === null) {
                             populateSubgrid(cell);
@@ -397,8 +412,6 @@
                 }
                 
                 // 3. Render All Layers
-                // IMPORTANT: Reset maxVisibleDepth based on the logical stack depth base,
-                // then let drawing update it to the actual pixel detail depth.
                 maxVisibleDepth = pathStack.length + 1; 
                 
                 renderQueue.forEach(item => {
@@ -419,7 +432,7 @@
         function enforceStackConstraints() {
             if (!useExperimentalZoom) return;
 
-            // 1. Zoom In Threshold (SWAP_THRESHOLD is now 512)
+            // 1. Zoom In Threshold (SWAP_THRESHOLD is 512)
             while (zoomLevel >= SWAP_THRESHOLD) {
                 const centerX = DISPLAY_SIZE / 2;
                 const centerY = DISPLAY_SIZE / 2;
@@ -571,7 +584,8 @@
         }
 
         // --- Unified Input Logic ---
-
+        
+        // Desktop/Mouse Wheel Zoom remains the same
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             
@@ -608,6 +622,7 @@
             drawCanvas();
         }, { passive: false });
 
+        // Desktop/Mouse Drag remains the same
         canvas.addEventListener('mousedown', (e) => {
             isDragging = true;
             const pos = getMousePos(e);
@@ -636,19 +651,82 @@
             isDragging = false;
             canvas.style.cursor = 'grab';
         });
+
+        // --- Mobile Touch Event Handlers (New Pinch-to-Zoom Logic) ---
         
         canvas.addEventListener('touchstart', (e) => {
-            if(e.touches.length === 1) {
+            e.preventDefault(); 
+            const rect = canvas.getBoundingClientRect();
+            
+            if (e.touches.length === 1) {
+                // 1. Start Panning (Dragging)
+                isPinching = false;
                 isDragging = true;
                 const pos = getMousePos(e);
                 lastX = pos.x;
                 lastY = pos.y;
+            } else if (e.touches.length === 2) {
+                // 2. Start Pinching (Zooming)
+                isDragging = false;
+                isPinching = true;
+                initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
+                // Set lastX/Y to midpoint for smooth transition when pinching starts/ends
+                const midpoint = getMidpoint(e.touches[0], e.touches[1], rect);
+                lastX = midpoint.x;
+                lastY = midpoint.y;
             }
         }, { passive: false });
 
         canvas.addEventListener('touchmove', (e) => {
-            if(isDragging && e.touches.length === 1) {
-                e.preventDefault(); 
+            e.preventDefault(); 
+            const rect = canvas.getBoundingClientRect();
+            
+            if (isPinching && e.touches.length === 2) {
+                // Pinch-to-Zoom Logic
+                const newPinchDistance = getDistance(e.touches[0], e.touches[1]);
+                const zoomFactor = newPinchDistance / initialPinchDistance;
+
+                // Determine zoom center (midpoint of fingers)
+                const pos = getMidpoint(e.touches[0], e.touches[1], rect);
+
+                const newZoomLevel = zoomLevel * zoomFactor;
+                
+                let finalZoomLevel = newZoomLevel;
+                let finalZoomFactor = zoomFactor;
+                
+                // Apply zoom limits (same logic as wheel)
+                if (!useExperimentalZoom) {
+                    if (finalZoomLevel > MAX_FLOAT_ZOOM) {
+                        finalZoomLevel = MAX_FLOAT_ZOOM;
+                        finalZoomFactor = MAX_FLOAT_ZOOM / zoomLevel;
+                    } else if (finalZoomLevel < 1) {
+                        finalZoomLevel = 1;
+                        finalZoomFactor = 1 / zoomLevel;
+                    }
+                }
+
+                // Apply zoom transformation centered on the midpoint
+                offsetX = pos.x - (pos.x - offsetX) * finalZoomFactor;
+                offsetY = pos.y - (pos.y - offsetY) * finalZoomFactor;
+                zoomLevel = finalZoomLevel;
+                
+                if (useExperimentalZoom) {
+                    enforceStackConstraints();
+                }
+
+                if (!useExperimentalZoom && zoomLevel === 1) { 
+                    offsetX = 0; offsetY = 0; 
+                }
+
+                // Update initial distance and last position for the next move event
+                initialPinchDistance = newPinchDistance;
+                lastX = pos.x;
+                lastY = pos.y;
+                
+                drawCanvas();
+
+            } else if (isDragging && e.touches.length === 1) {
+                // Panning Logic
                 const pos = getMousePos(e);
                 offsetX += pos.x - lastX;
                 offsetY += pos.y - lastY;
@@ -658,8 +736,21 @@
             }
         }, { passive: false });
 
-        canvas.addEventListener('touchend', () => {
-            isDragging = false;
+        canvas.addEventListener('touchend', (e) => {
+            // If we lift one finger while pinching (2 -> 1 touches)
+            if (isPinching && e.touches.length === 1) {
+                isPinching = false;
+                isDragging = true;
+                // Start new drag from the remaining finger's position
+                const pos = getMousePos(e); 
+                lastX = pos.x;
+                lastY = pos.y;
+            } else if (e.touches.length === 0) {
+                // All fingers lifted
+                isDragging = false;
+                isPinching = false;
+                initialPinchDistance = 0;
+            }
         });
 
         window.onload = function() {
